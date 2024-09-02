@@ -1,0 +1,64 @@
+stages:
+  - lint
+  - test
+  - docker_build
+
+variables:
+  DB_HOST_TEST: mysql
+  DB_PORT_TEST: 3306
+  DB_USER: user
+  DB_PASSWORD: password
+  DB_NAME_TEST: topico_db_test
+  IMAGE_NAME: $DOCKER_USERNAME/atividade-topicos-devops  # Nome da imagem em minúsculas
+
+lint:
+  stage: lint
+  image: node:18
+  before_script:
+    - cd backend
+  script:
+    - npm install
+    - npm run lint
+
+test:
+  stage: test
+  image: node:18
+  services:
+    - docker:dind
+    - mysql:8.0
+  variables:
+    MYSQL_DATABASE: $DB_NAME_TEST
+    MYSQL_ROOT_PASSWORD: $DB_PASSWORD
+    MYSQL_USER: $DB_USER
+    MYSQL_PASSWORD: $DB_PASSWORD
+  before_script:
+    - cd backend
+    - pwd
+    - ls -l
+    - npm install
+    - npx knex migrate:latest --env test --knexfile ./knexfile.cjs
+  script:
+    - npm run test
+
+docker_build:
+  stage: docker_build
+  image: docker:23.0.0
+  services:
+    - docker:dind
+  variables:
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: "/certs"
+    NODE_ENV: production
+  before_script:
+    - cd backend  # Navegar para o diretório onde está o Dockerfile
+    - ls -l       # Verificar se o Dockerfile está presente
+  script:
+    - docker --version
+    - docker info
+    - echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+    - IMAGE_TAG="${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}"
+    - docker build -t $IMAGE_NAME:$IMAGE_TAG -f Dockerfile .
+    - docker push $IMAGE_NAME:$IMAGE_TAG
+  only:
+    - main
+    - tags
